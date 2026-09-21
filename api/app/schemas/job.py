@@ -51,6 +51,7 @@ class JobRead(BaseModel):
     rationale: list[str] | None
     blockers: list[str] | None
 
+    scored_by: str | None
     status: str
     created_at: datetime
     scored_at: datetime | None

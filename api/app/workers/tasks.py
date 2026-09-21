@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal, dispose_inherited_connections
 from app.config import settings
 from app.llm.base import LLMOutcome, ProfileSummary, estimate_cost_usd
+from app.llm.fallback import FallbackScorer
 from app.llm.groq_provider import GroqProvider
 from app.models import Job
 from app.models.llm_call import LLMCall
@@ -82,6 +83,7 @@ def _apply(job: Job, outcome: LLMOutcome) -> None:
     job.fit_score = extraction.fit_score
     job.rationale = extraction.rationale
     job.blockers = extraction.blockers
+    job.scored_by = outcome.provider
     job.status = "scored"
     job.scored_at = datetime.now(UTC)
 
@@ -105,18 +107,38 @@ def score_job(job_id: str) -> None:
         db.commit()
 
         profile = _profile_summary(db, job.user_id)
-        provider = GroqProvider()
-        attempts = provider.extract_and_score(job.raw_text, profile)
 
-        for attempt in attempts:
-            _log_call(db, job, attempt)
+        attempts: list[LLMOutcome] = []
+        if settings.llm_configured:
+            attempts = GroqProvider().extract_and_score(job.raw_text, profile)
+            for attempt in attempts:
+                _log_call(db, job, attempt)
+        else:
+            logger.info("job_id=%s no groq key configured, using fallback", job_id)
+
+        # The fallback runs whenever the model did not produce a usable answer -
+        # unconfigured, down, rate-limited, or twice unparseable. A score that
+        # is merely crude beats a dashboard full of extraction_failed on the
+        # day this gets marked.
+        if not attempts or not attempts[-1].ok:
+            if attempts:
+                logger.warning(
+                    "job_id=%s groq unusable (%s), falling back",
+                    job_id,
+                    attempts[-1].error_kind,
+                )
+            fallback = FallbackScorer().extract_and_score(job.raw_text, profile)
+            for attempt in fallback:
+                _log_call(db, job, attempt)
+            attempts = attempts + fallback
 
         outcome = attempts[-1]
         if outcome.ok:
             _apply(job, outcome)
             logger.info(
-                "job_id=%s scored score=%s model=%s tokens=%s+%s latency=%sms",
+                "job_id=%s scored by=%s score=%s model=%s tokens=%s+%s latency=%sms",
                 job_id,
+                outcome.provider,
                 job.fit_score,
                 outcome.model,
                 outcome.prompt_tokens,

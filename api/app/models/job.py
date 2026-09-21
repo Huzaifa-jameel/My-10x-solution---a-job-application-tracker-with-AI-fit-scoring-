@@ -37,6 +37,7 @@ JOB_STATUSES = (
 )
 SENIORITIES = ("junior", "mid", "senior", "lead", "unknown")
 REMOTE_MODES = ("onsite", "hybrid", "remote", "unknown")
+SCORED_BY = ("groq", "fallback")
 
 
 def _one_of(column: str, allowed: tuple[str, ...], *, nullable: bool) -> CheckConstraint:
@@ -84,6 +85,9 @@ class Job(Base):
     blockers: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
 
     # --- lifecycle ---
+    # Which scorer produced the numbers above: the model, or the deterministic
+    # keyword fallback. Visible in the API so a reviewer can tell at a glance.
+    scored_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -97,6 +101,7 @@ class Job(Base):
         _one_of("status", JOB_STATUSES, nullable=False),
         _one_of("seniority", SENIORITIES, nullable=True),
         _one_of("remote", REMOTE_MODES, nullable=True),
+        _one_of("scored_by", SCORED_BY, nullable=True),
         CheckConstraint(
             "fit_score IS NULL OR (fit_score >= 0 AND fit_score <= 100)",
             name="ck_jobs_fit_score_range",
