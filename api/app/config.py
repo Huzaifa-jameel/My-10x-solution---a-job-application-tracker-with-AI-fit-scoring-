@@ -5,10 +5,16 @@ No module outside this file calls os.getenv - that rule keeps configuration
 auditable and keeps secrets out of the rest of the codebase.
 """
 
+import urllib.parse
 from functools import lru_cache
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Query parameters that ORMs and hosting dashboards bolt on but libpq does not
+# understand. Supabase's pooler URL ships with pgbouncer=true, which is a Prisma
+# flag; psycopg refuses to connect if it is left in place.
+NON_LIBPQ_PARAMS = frozenset({"pgbouncer", "schema", "connection_limit", "pool_timeout"})
 
 
 class Settings(BaseSettings):
@@ -69,6 +75,44 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:3000"
     cache_ttl_seconds: int = 604800
     digest_cron: str = "0 8 * * MON"
+
+
+    @classmethod
+    def _normalise_pg_url(cls, url: str) -> str:
+        """Make a connection string copied from Supabase usable as-is.
+
+        Two fixes, so that a reviewer can paste the dashboard string verbatim:
+          - the scheme reads "postgresql://", which SQLAlchemy resolves to
+            psycopg2. This project runs psycopg 3, so it must say
+            "postgresql+psycopg://".
+          - unknown query parameters are dropped (see _NON_LIBPQ_PARAMS).
+        """
+        if not url:
+            return url
+        parts = urllib.parse.urlsplit(url)
+        scheme = "postgresql+psycopg" if parts.scheme in ("postgres", "postgresql") else parts.scheme
+        query = [
+            (k, v)
+            for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+            if k not in NON_LIBPQ_PARAMS
+        ]
+        return urllib.parse.urlunsplit(
+            (scheme, parts.netloc, parts.path, urllib.parse.urlencode(query), parts.fragment)
+        )
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        """Runtime connection: the transaction pooler on port 6543."""
+        return self._normalise_pg_url(self.database_url)
+
+    @property
+    def alembic_url(self) -> str:
+        """Migrations: the direct connection on 5432.
+
+        Transaction-mode pooling does not play well with prepared statements or
+        DDL, so migrations deliberately avoid the pooler.
+        """
+        return self._normalise_pg_url(self.direct_url or self.database_url)
 
     @property
     def llm_configured(self) -> bool:
