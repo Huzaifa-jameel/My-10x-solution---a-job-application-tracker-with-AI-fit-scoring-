@@ -6,23 +6,60 @@ exist out here.
 """
 
 import logging
-import time
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.db import SessionLocal, dispose_inherited_connections
+from app.llm.base import LLMOutcome, ProfileSummary
+from app.llm.groq_provider import GroqProvider
 from app.models import Job
+from app.models.profile import Profile
 
 logger = logging.getLogger(__name__)
 
 
-def score_job(job_id: str) -> None:
-    """Score one ingested posting.
+def _profile_summary(db: Session, user_id: uuid.UUID) -> ProfileSummary:
+    """Flatten the user's profile for the prompt.
 
-    Placeholder implementation: it moves the row through the same states the
-    real pipeline will use, so the async round-trip can be proven end to end
-    before a model is involved. C9 replaces the sleep with Groq extraction.
+    A user with no profile still gets a score - the model just has nothing to
+    match against, which the rationale will say.
     """
+    profile = db.execute(select(Profile).where(Profile.user_id == user_id)).scalar_one_or_none()
+    if profile is None:
+        return ProfileSummary()
+    return ProfileSummary(
+        skills=list(profile.skills or []),
+        years_experience=profile.years_experience,
+        target_roles=list(profile.target_roles or []),
+        locations=list(profile.locations or []),
+        cv_text=profile.cv_text or "",
+    )
+
+
+def _apply(job: Job, outcome: LLMOutcome) -> None:
+    """Copy a validated extraction onto the row."""
+    extraction = outcome.extraction
+    assert extraction is not None  # guarded by outcome.ok at the call site
+
+    job.title = extraction.title or None
+    job.company = extraction.company or None
+    job.seniority = extraction.seniority
+    job.required_skills = extraction.required_skills
+    job.min_years = extraction.min_years
+    job.location = extraction.location or None
+    job.remote = extraction.remote
+    job.fit_score = extraction.fit_score
+    job.rationale = extraction.rationale
+    job.blockers = extraction.blockers
+    job.status = "scored"
+    job.scored_at = datetime.now(UTC)
+
+
+def score_job(job_id: str) -> None:
+    """Extract requirements from one posting and score it against the profile."""
     # RQ runs this in a forked child, which inherited the parent's pool.
     dispose_inherited_connections()
 
@@ -39,11 +76,30 @@ def score_job(job_id: str) -> None:
         job.status = "scoring"
         db.commit()
 
-        # Stands in for the model call, so the pending -> scored transition is
-        # actually observable in the UI rather than finishing instantly.
-        time.sleep(3)
+        profile = _profile_summary(db, job.user_id)
+        provider = GroqProvider()
+        outcome = provider.extract_and_score(job.raw_text, profile)
 
-        job.status = "scored"
-        job.scored_at = datetime.now(UTC)
+        if outcome.ok:
+            _apply(job, outcome)
+            logger.info(
+                "job_id=%s scored score=%s model=%s tokens=%s+%s latency=%sms",
+                job_id,
+                job.fit_score,
+                outcome.model,
+                outcome.prompt_tokens,
+                outcome.completion_tokens,
+                outcome.latency_ms,
+            )
+        else:
+            # A failed extraction is a state the row carries, not an exception
+            # that kills the worker. C10 adds the repair retry and cost log.
+            job.status = "extraction_failed"
+            logger.warning(
+                "job_id=%s extraction failed kind=%s latency=%sms",
+                job_id,
+                outcome.error_kind,
+                outcome.latency_ms,
+            )
+
         db.commit()
-        logger.info("job_id=%s scoring finished status=%s", job_id, job.status)
