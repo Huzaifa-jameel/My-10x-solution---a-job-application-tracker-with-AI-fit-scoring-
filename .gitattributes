@@ -1,0 +1,6 @@
+# Normalise to LF in the repo. Containers are Linux; CRLF breaks shell scripts
+# and Docker entrypoints when the repo is cloned on Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary

@@ -1,0 +1,39 @@
+# --- Secrets: never commit ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- Databases (local fallback only; production is Supabase) ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Generated reports ---
+*.pdf
+api/app/reports/out/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+.pnpm-store/
+npm-debug.log*
+yarn-error.log*
+
+# --- Editors / OS ---
+.claude/settings.local.json
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
