@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
+from app.cache import extraction as cache
 from app.db import get_db
 from app.models import Job
 from app.models.llm_call import LLMCall
@@ -45,6 +46,9 @@ def read_usage(
         select(func.count(Job.id)).where(Job.user_id == current_user.id, Job.status == "scored")
     ).scalar_one()
 
+    hits, misses = cache.stats(current_user.id)
+    lookups = hits + misses
+
     summary = UsageSummary(
         total_calls=total_calls,
         successful_calls=successful,
@@ -58,6 +62,9 @@ def read_usage(
         # Above 1.0 means repair retries are firing; well below 1.0 means the
         # cache is doing its job.
         calls_per_scored_job=round(total_calls / jobs_scored, 2) if jobs_scored else 0.0,
+        cache_hits=hits,
+        cache_misses=misses,
+        cache_hit_rate=round(hits / lookups, 3) if lookups else 0.0,
     )
 
     rows = (

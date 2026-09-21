@@ -37,7 +37,9 @@ JOB_STATUSES = (
 )
 SENIORITIES = ("junior", "mid", "senior", "lead", "unknown")
 REMOTE_MODES = ("onsite", "hybrid", "remote", "unknown")
-SCORED_BY = ("groq", "fallback")
+# "cache" is a real answer here, not a cop-out: it tells a reviewer this row
+# cost nothing, which is the only way concept 6 is visible on a job.
+SCORED_BY = ("groq", "fallback", "cache")
 
 
 def _one_of(column: str, allowed: tuple[str, ...], *, nullable: bool) -> CheckConstraint:

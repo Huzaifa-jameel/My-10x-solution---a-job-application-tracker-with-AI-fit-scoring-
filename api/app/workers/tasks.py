@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, dispose_inherited_connections
+from app.cache import extraction as cache
 from app.config import settings
 from app.llm.base import LLMOutcome, ProfileSummary, estimate_cost_usd
 from app.llm.fallback import FallbackScorer
@@ -88,8 +89,13 @@ def _apply(job: Job, outcome: LLMOutcome) -> None:
     job.scored_at = datetime.now(UTC)
 
 
-def score_job(job_id: str) -> None:
-    """Extract requirements from one posting and score it against the profile."""
+def score_job(job_id: str, use_cache: bool = True) -> None:
+    """Extract requirements from one posting and score it against the profile.
+
+    use_cache=False is what POST /jobs/{id}/rescore passes: a rescore exists
+    precisely to get a fresh answer, so serving it from the cache would make
+    the button do nothing.
+    """
     # RQ runs this in a forked child, which inherited the parent's pool.
     dispose_inherited_connections()
 
@@ -107,6 +113,18 @@ def score_job(job_id: str) -> None:
         db.commit()
 
         profile = _profile_summary(db, job.user_id)
+
+        # A hit skips the model entirely - no request, no cost-log row.
+        if use_cache:
+            cached = cache.get(job.content_hash, profile)
+            if cached is not None:
+                cache.record_hit(job.user_id)
+                _apply(job, LLMOutcome(provider="cache", model="cache", ok=True, extraction=cached))
+                job.scored_by = "cache"
+                db.commit()
+                logger.info("job_id=%s served from cache score=%s", job_id, job.fit_score)
+                return
+            cache.record_miss(job.user_id)
 
         attempts: list[LLMOutcome] = []
         if settings.llm_configured:
@@ -135,6 +153,8 @@ def score_job(job_id: str) -> None:
         outcome = attempts[-1]
         if outcome.ok:
             _apply(job, outcome)
+            if outcome.extraction is not None:
+                cache.store(job.content_hash, profile, outcome.extraction)
             logger.info(
                 "job_id=%s scored by=%s score=%s model=%s tokens=%s+%s latency=%sms",
                 job_id,

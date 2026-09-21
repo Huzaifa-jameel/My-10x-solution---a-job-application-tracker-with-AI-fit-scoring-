@@ -21,6 +21,12 @@ class UsageSummary(BaseModel):
     jobs_scored: int
     calls_per_scored_job: float
 
+    # Concept 6, made countable. A hit means a posting was scored without any
+    # model call at all.
+    cache_hits: int
+    cache_misses: int
+    cache_hit_rate: float
+
 
 class UsageCall(BaseModel):
     """One row of the cost log, newest first."""
