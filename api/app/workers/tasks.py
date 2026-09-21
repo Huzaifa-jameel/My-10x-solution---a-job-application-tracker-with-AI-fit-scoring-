@@ -13,9 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, dispose_inherited_connections
-from app.llm.base import LLMOutcome, ProfileSummary
+from app.config import settings
+from app.llm.base import LLMOutcome, ProfileSummary, estimate_cost_usd
 from app.llm.groq_provider import GroqProvider
 from app.models import Job
+from app.models.llm_call import LLMCall
 from app.models.profile import Profile
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,32 @@ def _profile_summary(db: Session, user_id: uuid.UUID) -> ProfileSummary:
         target_roles=list(profile.target_roles or []),
         locations=list(profile.locations or []),
         cv_text=profile.cv_text or "",
+    )
+
+
+def _log_call(db: Session, job: Job, outcome: LLMOutcome) -> None:
+    """Write one cost-log row for one request.
+
+    Called for every attempt, including failures. A failed call still costs
+    latency and still counts against a rate limit, so leaving it out would
+    make the log a record of successes rather than a record of spend.
+    """
+    db.add(
+        LLMCall(
+            user_id=job.user_id,
+            job_id=job.id,
+            provider=outcome.provider,
+            model=outcome.model,
+            prompt_tokens=outcome.prompt_tokens,
+            completion_tokens=outcome.completion_tokens,
+            max_input_tokens=settings.llm_max_input_tokens,
+            est_cost_usd=estimate_cost_usd(outcome.prompt_tokens, outcome.completion_tokens),
+            latency_ms=outcome.latency_ms,
+            success=outcome.ok,
+            error_kind=outcome.error_kind,
+            attempt=outcome.attempts,
+            raw_response=outcome.raw_response,
+        )
     )
 
 
@@ -78,8 +106,12 @@ def score_job(job_id: str) -> None:
 
         profile = _profile_summary(db, job.user_id)
         provider = GroqProvider()
-        outcome = provider.extract_and_score(job.raw_text, profile)
+        attempts = provider.extract_and_score(job.raw_text, profile)
 
+        for attempt in attempts:
+            _log_call(db, job, attempt)
+
+        outcome = attempts[-1]
         if outcome.ok:
             _apply(job, outcome)
             logger.info(
@@ -93,12 +125,14 @@ def score_job(job_id: str) -> None:
             )
         else:
             # A failed extraction is a state the row carries, not an exception
-            # that kills the worker. C10 adds the repair retry and cost log.
+            # that kills the worker. The raw reply is on the cost-log row for
+            # whoever has to work out why.
             job.status = "extraction_failed"
             logger.warning(
-                "job_id=%s extraction failed kind=%s latency=%sms",
+                "job_id=%s extraction failed kind=%s attempts=%s latency=%sms",
                 job_id,
                 outcome.error_kind,
+                len(attempts),
                 outcome.latency_ms,
             )
 

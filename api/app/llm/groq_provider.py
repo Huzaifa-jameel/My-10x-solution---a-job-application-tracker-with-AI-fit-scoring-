@@ -11,8 +11,14 @@ import time
 import httpx
 
 from app.config import settings
-from app.llm.base import Extraction, LLMOutcome, LLMProvider, ProfileSummary
-from app.llm.prompts import SYSTEM_PROMPT, build_user_prompt
+from app.llm.base import (
+    REPAIRABLE_ERRORS,
+    Extraction,
+    LLMOutcome,
+    LLMProvider,
+    ProfileSummary,
+)
+from app.llm.prompts import REPAIR_INSTRUCTION, SYSTEM_PROMPT, build_user_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +31,35 @@ class GroqProvider(LLMProvider):
         self.model = model or settings.groq_model
         self.base_url = settings.groq_base_url
 
-    def extract_and_score(self, posting_text: str, profile: ProfileSummary) -> LLMOutcome:
+    def extract_and_score(self, posting_text: str, profile: ProfileSummary) -> list[LLMOutcome]:
+        """Up to two requests: the call, and one repair if it came back unusable.
+
+        Returns every attempt rather than just the final one, because each
+        request made is a row the cost log has to carry. The caller uses the
+        last outcome and logs them all.
+        """
         user_prompt = build_user_prompt(posting_text, profile, settings.llm_max_input_tokens)
-        return self._call(
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        first = self._call(messages)
+        if first.ok or first.error_kind not in REPAIRABLE_ERRORS:
+            return [first]
+
+        logger.info("groq reply unusable (%s), attempting one repair", first.error_kind)
+        repair = self._call(
             [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
+                *messages,
+                {"role": "assistant", "content": first.raw_response or ""},
+                {"role": "user", "content": REPAIR_INSTRUCTION},
             ]
         )
+        repair.attempts = 2
+        # No third attempt. The caller marks the row extraction_failed and the
+        # stored raw_response is there to be looked at.
+        return [first, repair]
 
     def _call(self, messages: list[dict[str, str]]) -> LLMOutcome:
         """One request. Every failure mode returns an outcome, never raises.

@@ -12,6 +12,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+# Parse failures are worth one corrective retry. Transport failures are not:
+# a 429 retried immediately is still a 429, and that is what the deterministic
+# fallback scorer exists for.
+REPAIRABLE_ERRORS = frozenset({"invalid_json", "not_an_object", "schema_mismatch"})
+
 Seniority = Literal["junior", "mid", "senior", "lead", "unknown"]
 RemoteMode = Literal["onsite", "hybrid", "remote", "unknown"]
 
@@ -116,3 +121,18 @@ class LLMProvider(ABC):
     @abstractmethod
     def extract_and_score(self, posting_text: str, profile: ProfileSummary) -> LLMOutcome:
         raise NotImplementedError
+
+
+def estimate_cost_usd(prompt_tokens: int, completion_tokens: int) -> float:
+    """Cost of one call from the per-model rates in config.
+
+    Groq's free tier bills nothing, so these rates are 0.0 and this returns
+    0.0. The number is logged anyway: the discipline of measuring is the point,
+    and the day the rate stops being zero, nothing else has to change.
+    """
+    from app.config import settings
+
+    return (
+        prompt_tokens * settings.llm_input_cost_per_mtok_usd
+        + completion_tokens * settings.llm_output_cost_per_mtok_usd
+    ) / 1_000_000

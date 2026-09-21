@@ -74,3 +74,11 @@ def truncate(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars].rstrip() + "\n\n[posting truncated]"
+
+
+REPAIR_INSTRUCTION = """Your previous reply was not valid JSON matching the required shape.
+
+Reply again with ONLY the JSON object. No explanation, no markdown fences, no trailing
+commas. Every key listed in the system message must be present, seniority must be one of
+junior/mid/senior/lead/unknown, remote must be one of onsite/hybrid/remote/unknown, and
+fit_score and min_years must be plain integers."""
