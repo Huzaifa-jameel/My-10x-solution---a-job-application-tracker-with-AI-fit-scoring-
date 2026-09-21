@@ -1,0 +1,42 @@
+# Pinned exactly. The api, worker and scheduler containers all install this file.
+
+# --- Web framework + validation (concept 1) ---
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-multipart==0.0.32
+
+# --- Database + migrations (concept 2) ---
+sqlalchemy==2.0.54
+alembic==1.20.0
+psycopg[binary]==3.3.6
+
+# --- Auth (concept 3) ---
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+# bcrypt is held below 5.0 on purpose. On import, passlib probes the backend by
+# hashing an over-length password; bcrypt 4.x truncates it, but bcrypt 5.0
+# raises ValueError, which kills the probe and takes the whole CryptContext
+# with it. Verified against 4.3.0, 4.2.1 and 4.0.1 - 4.3.0 is the newest that
+# works.
+bcrypt==4.3.0
+
+# --- Queue, scheduler, cache (concepts 4 and 6) ---
+redis==8.1.0
+rq==2.12.0
+rq-scheduler==0.14.0
+
+# --- Reporting: PDF + email (concept 5) ---
+weasyprint==63.1
+jinja2==3.1.6
+
+# --- LLM + ingest (concept 7) ---
+# Groq is called over its OpenAI-compatible HTTP API, so no vendor SDK is
+# needed - just httpx with explicit timeouts.
+httpx==0.28.1
+trafilatura==2.2.0
+
+# --- Tests ---
+pytest==9.1.1
+pytest-asyncio==1.4.0
