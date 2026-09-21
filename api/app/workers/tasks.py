@@ -10,7 +10,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-from app.db import SessionLocal
+from app.db import SessionLocal, dispose_inherited_connections
 from app.models import Job
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,9 @@ def score_job(job_id: str) -> None:
     real pipeline will use, so the async round-trip can be proven end to end
     before a model is involved. C9 replaces the sleep with Groq extraction.
     """
+    # RQ runs this in a forked child, which inherited the parent's pool.
+    dispose_inherited_connections()
+
     job_uuid = uuid.UUID(job_id)
 
     with SessionLocal() as db:
