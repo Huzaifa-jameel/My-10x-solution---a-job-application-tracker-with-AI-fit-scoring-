@@ -6,6 +6,8 @@ uvicorn[standard]==0.53.0
 pydantic==2.13.5
 pydantic-settings==2.15.0
 python-multipart==0.0.32
+# Required by pydantic's EmailStr, which validates registration emails.
+email-validator==2.3.0
 
 # --- Database + migrations (concept 2) ---
 sqlalchemy==2.0.54
