@@ -18,6 +18,26 @@ services:
       timeout: 3s
       retries: 10
 
+  # Local SMTP catcher: a real SMTP server on :1025 and a web inbox on :8025.
+  # It replaces a hosted test-mail account, so there is no signup, nothing to
+  # leak, and a reviewer who clones this repo can watch the weekly digest
+  # arrive without registering anywhere. Point SMTP_* at a real provider in
+  # .env to send outward instead.
+  mailpit:
+    image: axllent/mailpit:v1.31.2
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    environment:
+      MP_MAX_MESSAGES: "500"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build: ./api
     env_file: .env
@@ -27,6 +47,8 @@ services:
       - "8000:8000"
     depends_on:
       redis:
+        condition: service_healthy
+      mailpit:
         condition: service_healthy
     volumes:
       - ./api:/app

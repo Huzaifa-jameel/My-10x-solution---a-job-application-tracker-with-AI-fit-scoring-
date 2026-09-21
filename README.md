@@ -24,6 +24,17 @@ applying to 10–30 roles a month, with no recruiter and no ATS of their own.
 **No auto-apply, no form-filling.** JobFit does not submit applications on your behalf and does not
 drive a browser into third-party ATS systems. It advises and tracks; the human applies.
 
+## A note on email
+
+The weekly digest is delivered over SMTP to **Mailpit**, a local mail catcher that runs as a
+container in this stack (web inbox on `:8025`). This replaces a hosted test-mail account: there is
+no signup, no credentials to leak, and anyone who clones this repo can watch a digest arrive
+without registering for anything. `EMAIL_PROVIDER=smtp` in `.env` points the same code at a real
+provider, and `EMAIL_PROVIDER=file` writes messages to disk instead of sending.
+
+This is a provider choice, not a concept swap - concept 5 (reporting: PDF + email) is implemented
+in full either way.
+
 ## Status
 
 Under construction. Setup commands, the concept → file-location table, the demo path, and the

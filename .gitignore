@@ -19,9 +19,10 @@ venv/
 *.sqlite
 *.sqlite3
 
-# --- Generated reports ---
+# --- Generated reports and captured mail ---
 *.pdf
 api/app/reports/out/
+api/outbox/
 
 # --- Node / Next.js ---
 node_modules/

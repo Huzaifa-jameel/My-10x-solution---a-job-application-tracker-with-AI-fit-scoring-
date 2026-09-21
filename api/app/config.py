@@ -6,6 +6,7 @@ auditable and keeps secrets out of the rest of the codebase.
 """
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -47,12 +48,18 @@ class Settings(BaseSettings):
     llm_output_cost_per_mtok_usd: float = 0.0
 
     # --- Email ---
-    email_provider: str = "mailtrap"
-    smtp_host: str = "sandbox.smtp.mailtrap.io"
-    smtp_port: int = 2525
+    # "mailpit" -> the local catcher container (default; no account anywhere)
+    # "smtp"    -> a real SMTP provider, configured through the SMTP_* vars
+    # "file"    -> write each message to disk as .eml and send nothing
+    email_provider: Literal["mailpit", "smtp", "file"] = "mailpit"
+    smtp_host: str = "mailpit"
+    smtp_port: int = 1025
     smtp_user: str = ""
     smtp_password: str = ""
-    digest_from: str = "jobfit@example.com"
+    smtp_starttls: bool = False
+    smtp_timeout_seconds: float = 15.0
+    mail_outbox_dir: str = "/app/outbox"
+    digest_from: str = "jobfit@localhost"
     digest_to: str = "you@example.com"
 
     # --- App ---
