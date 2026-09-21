@@ -60,5 +60,19 @@ services:
       retries: 5
       start_period: 15s
 
+  # Same image as api, different command. This is what keeps the request path
+  # free of model calls and PDF rendering.
+  worker:
+    build: ./api
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+    command: python -m app.workers.run
+
 volumes:
   redis-data:

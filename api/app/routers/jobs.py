@@ -21,20 +21,23 @@ from app.ingest.text import clean_text, content_hash
 from app.models import Job
 from app.models.user import User
 from app.schemas.job import JobCreate, JobRead
+from app.workers.queue import queue
+from app.workers.tasks import score_job
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
-@router.post("", response_model=JobRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=JobRead, status_code=status.HTTP_202_ACCEPTED)
 def ingest_job(
     payload: JobCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> JobRead:
-    """Store a pasted posting and hand back the row.
+    """Accept a pasted posting for scoring.
 
-    The row lands as "pending". Once the worker exists (C8) this becomes a
-    202 and the scoring happens off the request path.
+    Returns 202, not 201: the row exists, but the interesting part has not
+    happened yet. The client polls GET /jobs/{id} until status leaves
+    "pending". Nothing on this path touches the network or a model.
     """
     cleaned = clean_text(payload.text)
     digest = content_hash(cleaned)
@@ -67,6 +70,11 @@ def ingest_job(
             detail="This posting has already been ingested.",
         ) from None
     db.refresh(job)
+
+    # Enqueued only after the commit succeeds: a worker that picked the job up
+    # first would look for a row that is not there yet.
+    queue.enqueue(score_job, str(job.id))
+
     return JobRead.model_validate(job)
 
 
