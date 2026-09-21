@@ -8,7 +8,17 @@ before it has been scored - and may never be scored if extraction fails.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ARRAY, CheckConstraint, DateTime, Integer, String, Text, func
+from sqlalchemy import (
+    ARRAY,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,6 +53,15 @@ class Job(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
+    # Every job belongs to exactly one user. Deleting the user takes their jobs
+    # with them - this is personal data, not shared reference data.
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     # --- what was ingested ---
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # sha256 of the cleaned text: identifies a re-ingest of the same posting and
@@ -72,6 +91,9 @@ class Job(Base):
     scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
+        # Duplicate detection is per user: two people may each track the same
+        # posting, but neither should end up with it twice.
+        UniqueConstraint("user_id", "content_hash", name="uq_jobs_user_content"),
         _one_of("status", JOB_STATUSES, nullable=False),
         _one_of("seniority", SENIORITIES, nullable=True),
         _one_of("remote", REMOTE_MODES, nullable=True),
