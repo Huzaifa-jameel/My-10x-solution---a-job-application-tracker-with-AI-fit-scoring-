@@ -36,7 +36,10 @@ class Settings(BaseSettings):
 
     # --- LLM ---
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Groq has retired the Llama 3.x chat models; gpt-oss-120b is the best
+    # currently-served model that honours JSON mode. Re-check /models if a
+    # call ever returns 404 model_not_found.
+    groq_model: str = "openai/gpt-oss-120b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
     llm_max_input_tokens: int = 6000
     llm_timeout_seconds: float = 45.0
