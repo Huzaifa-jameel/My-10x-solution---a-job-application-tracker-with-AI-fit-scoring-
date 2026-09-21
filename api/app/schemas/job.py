@@ -14,6 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field
 MIN_POSTING_CHARS = 50
 MAX_POSTING_CHARS = 60_000
 
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
+
 
 class JobCreate(BaseModel):
     """Ingest a posting by pasted text."""
@@ -55,3 +58,16 @@ class JobRead(BaseModel):
     status: str
     created_at: datetime
     scored_at: datetime | None
+
+
+class JobPage(BaseModel):
+    """One page of jobs.
+
+    total is the count matching the filters, not the count returned, so the
+    client can render "showing 20 of 84" without a second request.
+    """
+
+    items: list[JobRead]
+    total: int
+    limit: int
+    offset: int
